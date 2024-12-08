@@ -1,0 +1,146 @@
+import pandas as pd
+import numpy as np
+import random
+
+
+# Step 1: Get user input and calculate nutritional needs
+def get_user_input():
+    height = float(input("Enter your height (in cm): "))
+    weight = float(input("Enter your weight (in kg): "))
+    age = int(input("Enter your age: "))
+    weight_goal = input("Enter your weight goal (Lose, Gain, Maintain): ").strip().lower()
+    physical_activity_level = input("Enter your physical activity level (Low, Moderate, High): ").strip().lower()
+    gender = input("Enter your gender (Male/Female): ").strip().lower()
+    meal_type = input("Select a meal type (Breakfast, Lunch, Snack, Dinner): ").strip().lower()
+    is_vegetarian = input("Are you a vegetarian? (Yes/No): ").strip().lower() == 'yes'
+
+    physical_activity_level_mapping = {"low": 1.3, "moderate": 1.5, "high": 1.7}
+
+    user_data = pd.DataFrame([{
+        'height': height,
+        'weight': weight,
+        'age': age,
+        'weight_goal': weight_goal,
+        'physical_activity_level': physical_activity_level,
+        'gender': gender,
+        'meal_type': meal_type,
+        'is_vegetarian': is_vegetarian
+    }])
+
+    user_data['physical_activity_level_numeric'] = user_data['physical_activity_level'].map(physical_activity_level_mapping)
+
+    return user_data
+
+
+# Step 2: Calculate nutritional needs
+def calculate_nutritional_needs(user_data):
+    if user_data['gender'].iloc[0] == 'female':
+        bmr = 10 * user_data['weight'].iloc[0] + 6.25 * user_data['height'].iloc[0] - 5 * user_data['age'].iloc[0] - 161
+    else:
+        bmr = 10 * user_data['weight'].iloc[0] + 6.25 * user_data['height'].iloc[0] - 5 * user_data['age'].iloc[0] + 5
+
+    tdee = bmr * user_data['physical_activity_level_numeric'].iloc[0]
+
+    height_in_meters = user_data['height'].iloc[0] / 100
+    bmi = user_data['weight'].iloc[0] / (height_in_meters ** 2)
+    user_data['BMI'] = bmi
+
+    if bmi < 18.5:
+        user_data['weight_goal'] = 'gain'
+        user_data['calorie_needs'] = tdee + 500
+    elif bmi >= 25:
+        user_data['weight_goal'] = 'loss'
+        user_data['calorie_needs'] = tdee - 500
+    else:
+        user_data['weight_goal'] = 'maintenance'
+        user_data['calorie_needs'] = tdee
+
+    user_data['protein_needs'] = user_data['calorie_needs'] * 0.25 / 4
+    user_data['fat_needs'] = user_data['calorie_needs'] * 0.25 / 9
+    user_data['carbohydrate_needs'] = user_data['calorie_needs'] * 0.5 / 4
+    user_data['fiber_needs'] = 25
+
+    return user_data
+
+
+# Recommendation system with meal type and vegetarian filtering
+def refined_recommendation_system(user_nutrition_profile, food_data, weight_goal, meal_type, is_vegetarian, top_n=5):
+    # Adjust weightings and calorie thresholds for each goal
+    if weight_goal == 'loss':
+        calorie_threshold = (0, 300)  # Calorie range for weight loss
+        weightings = np.array([0.8, 0.05, 0.05, 0.05, 0.05])  # Emphasize calories more
+    elif weight_goal == 'gain':
+        calorie_threshold = (450, float('inf'))  # Calorie range for weight gain
+        weightings = np.array([0.3, 0.4, 0.1, 0.1, 0.1])  # Emphasize protein more
+    else:  # maintenance
+        calorie_threshold = (300, 450)  # Calorie range for maintenance
+        weightings = np.array([0.5, 0.2, 0.15, 0.1, 0.05])  # Balanced emphasis
+
+    # Filter food data by calorie range
+    food_filtered = food_data[
+        (food_data['energy_per_serving_kcal'] >= calorie_threshold[0]) &
+        (food_data['energy_per_serving_kcal'] <= calorie_threshold[1])
+    ]
+
+    # Filter by meal type
+    if meal_type == "breakfast":
+        food_filtered = food_filtered[food_filtered['is_breakfast'] == 1]
+    elif meal_type == "lunch":
+        food_filtered = food_filtered[food_filtered['is_lunch'] == 1]
+    elif meal_type == "snack":
+        food_filtered = food_filtered[food_filtered['is_snack'] == 1]
+    elif meal_type == "dinner":
+        food_filtered = food_filtered[food_filtered['is_dinner'] == 1]
+
+    # Filter by vegetarian preference
+    if is_vegetarian:
+        food_filtered = food_filtered[food_filtered['is_vegetarian'] == 1]
+
+    # Calculate similarities
+    food_nutrition_profiles = food_filtered[['energy_per_serving_kcal', 'protein_per_serving_g',
+                                             'carbohydrate_per_serving_g', 'fat_per_serving_g',
+                                             'fiber_per_serving_g']]
+    differences = np.abs(food_nutrition_profiles - user_nutrition_profile)
+    weighted_differences = differences * weightings
+    total_similarity_scores = weighted_differences.sum(axis=1)
+
+    food_filtered['similarity_score'] = total_similarity_scores
+    sorted_food = food_filtered.sort_values(by='similarity_score').head(top_n * 2)
+
+    # Add variability by randomizing among the top 2*N matches
+    recommendations = sorted_food.sample(n=top_n, random_state=random.randint(0, 1000))
+
+    return recommendations[['name', 'energy_per_serving_kcal', 'protein_per_serving_g',
+                             'carbohydrate_per_serving_g', 'fat_per_serving_g', 'fiber_per_serving_g']]
+
+
+# Main function to run the program
+def main():
+    user_data = get_user_input()
+    user_data = calculate_nutritional_needs(user_data)
+
+    food_data = pd.read_csv('food_database.csv', header=0)
+
+    user_profile = pd.Series({
+        'energy_per_serving_kcal': user_data['calorie_needs'].iloc[0],
+        'protein_per_serving_g': user_data['protein_needs'].iloc[0],
+        'carbohydrate_per_serving_g': user_data['carbohydrate_needs'].iloc[0],
+        'fat_per_serving_g': user_data['fat_needs'].iloc[0],
+        'fiber_per_serving_g': user_data['fiber_needs'].iloc[0]
+    })
+
+    recommendations = refined_recommendation_system(
+        user_nutrition_profile=user_profile,
+        food_data=food_data,
+        weight_goal=user_data['weight_goal'].iloc[0],
+        meal_type=user_data['meal_type'].iloc[0],
+        is_vegetarian=user_data['is_vegetarian'].iloc[0]
+    )
+
+    print(f"\nYour BMI is {user_data['BMI'].iloc[0]:.2f} and your suggested weight goal is: {user_data['weight_goal'].iloc[0].capitalize()}")
+    print("\nTop Food Recommendations Based on Your Nutritional Needs:")
+    print(recommendations)
+
+
+if __name__ == "__main__":
+    main()
