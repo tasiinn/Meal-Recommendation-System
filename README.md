@@ -1,1 +1,2 @@
 # Meal-Recommendation-System
+The personalized meal recommendation system is made with the objective of recommending food items that align with the user’s specific needs. The system aims to help the user maintain a healthy lifestyle by suggesting meals based on their BMI (Body Mass Index), BMR (Basal Metabolic Rate) and PAL (Physical Activity Level), while also taking into account their dietary preferences (vegetarian/non-vegetarian).
